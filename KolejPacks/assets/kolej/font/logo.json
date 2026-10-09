@@ -1,0 +1,11 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "kolej:logo.png",
+      "ascent": 40,
+      "height": 48,
+      "chars": ["\uE000"]
+    }
+  ]
+}
