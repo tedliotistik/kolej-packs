@@ -12,9 +12,10 @@ on:
   workflow_dispatch:
 
 env:
-  # GTProxy commit the patch was written against.
+  # GTProxy commit the patch was written against. (The next upstream commit,
+  # f51c5a3 "style: keep code style consistent", does not compile.)
   GTPROXY_REPO: https://github.com/ZTzTopia/GTProxy.git
-  GTPROXY_COMMIT: f51c5a3d66ed52af08e2dec8d0459876bc102e75
+  GTPROXY_COMMIT: 0105cd5e7f9312cf9289faf18596d357068da088
   BUILD_TYPE: Release
 
 jobs:

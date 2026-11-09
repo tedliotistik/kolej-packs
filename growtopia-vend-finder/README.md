@@ -159,7 +159,7 @@ alt-tab'dayken de çalışır.
 ```bash
 git clone https://github.com/ZTzTopia/GTProxy.git
 cd GTProxy
-git checkout f51c5a3d66ed52af08e2dec8d0459876bc102e75
+git checkout 0105cd5e7f9312cf9289faf18596d357068da088
 git submodule update --init --recursive
 git apply ../growtopia-vend-finder/patches/0001-vend-finder-lua-bindings.patch
 pip install "conan>2.0"
