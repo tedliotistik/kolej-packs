@@ -1,0 +1,107 @@
+From 8928ac7a5b38ce50a36f5152bc9416907b216278 Mon Sep 17 00:00:00 2001
+From: Vend Finder <noreply@example.com>
+Date: Mon, 9 Nov 2026 16:35:44 +0000
+Subject: [PATCH] Fix DNS-over-HTTPS lookups failing certificate verification
+ on Windows
+
+Verify against a bundled Mozilla CA list (resources/cacert.pem) and fall
+back to the other DoH provider when the configured one fails.
+---
+ src/network/dns_resolver.cpp | 45 ++++++++++++++++++++++++++++++++----
+ 1 file changed, 40 insertions(+), 5 deletions(-)
+
+diff --git a/src/network/dns_resolver.cpp b/src/network/dns_resolver.cpp
+index b1bafd9..aa5302f 100644
+--- a/src/network/dns_resolver.cpp
++++ b/src/network/dns_resolver.cpp
+@@ -1,5 +1,7 @@
+ #include "dns_resolver.hpp"
+ 
++#include <filesystem>
++
+ #include <httplib.h>
+ #include <fmt/format.h>
+ #include <glaze/glaze.hpp>
+@@ -38,26 +40,36 @@ DnsResolver::DnsResolver(std::unique_ptr<DnsProvider> provider)
+ 
+ }
+ 
+-DnsResult DnsResolver::resolve_domain(const std::string& domain) const
++namespace {
++// CA bundle shipped next to the executable (Mozilla's list, from curl.se).
++// The OpenSSL build used here cannot always read the Windows certificate
++// store, which made every DNS-over-HTTPS lookup fail verification.
++constexpr auto CA_BUNDLE_PATH{ "./resources/cacert.pem" };
++
++DnsResult query_provider(const DnsProvider& provider, const std::string& domain)
+ {
+     httplib::Headers headers{
+         {"Accept", "application/dns-json"}
+     };
+ 
+-    httplib::Client cli{ fmt::format("https://{}", provider_->get_host()) };
++    httplib::Client cli{ fmt::format("https://{}", provider.get_host()) };
+ 
+     cli.set_connection_timeout(5);
+     cli.set_read_timeout(10);
+     cli.set_write_timeout(5);
++    if (std::filesystem::exists(CA_BUNDLE_PATH)) {
++        cli.set_ca_cert_path(CA_BUNDLE_PATH);
++    }
+ 
+     httplib::Result res{ cli.Get(
+-        fmt::format("{}?name={}&type=A", provider_->get_path(), domain),
++        fmt::format("{}?name={}&type=A", provider.get_path(), domain),
+         headers
+     ) };
+ 
+     if (!res) {
+         spdlog::error(
+-            "DNS request failed: httplib::Error::{}",
++            "DNS request to {} failed: httplib::Error::{}",
++            provider.get_host(),
+             magic_enum::enum_name(res.error())
+         );
+         return { DnsStatus::ServerFail, {} };
+@@ -65,7 +77,8 @@ DnsResult DnsResolver::resolve_domain(const std::string& domain) const
+ 
+     if (res.error() != httplib::Error::Success || res->status != 200) {
+         spdlog::error(
+-            "Failed to get DNS response: {}",
++            "Failed to get DNS response from {}: {}",
++            provider.get_host(),
+             res.error() == httplib::Error::Success
+                 ? fmt::format("HTTP status: {}", res->status)
+                 : fmt::format("HTTP error: {}", httplib::to_string(res.error()))
+@@ -94,6 +107,28 @@ DnsResult DnsResolver::resolve_domain(const std::string& domain) const
+ 
+     return { status, dns_response.answer.back().data };
+ }
++}
++
++DnsResult DnsResolver::resolve_domain(const std::string& domain) const
++{
++    auto result{ query_provider(*provider_, domain) };
++    if (result.status != DnsStatus::ServerFail) {
++        return result;
++    }
++
++    // The configured DNS-over-HTTPS provider may be blocked on this network;
++    // try the other one before giving up.
++    static const CloudflareDnsProvider cloudflare{};
++    static const GoogleDnsProvider google{};
++    const DnsProvider& fallback{
++        provider_->get_host() == cloudflare.get_host()
++            ? static_cast<const DnsProvider&>(google)
++            : static_cast<const DnsProvider&>(cloudflare)
++    };
++
++    spdlog::warn("Retrying DNS lookup for {} with {}", domain, fallback.get_host());
++    return query_provider(fallback, domain);
++}
+ 
+ std::string DnsResolver::resolve_ip(const std::string& host) const
+ {
+-- 
+2.43.0
+
