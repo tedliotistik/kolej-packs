@@ -1,2 +1,5 @@
 __pycache__/
 .pytest_cache/
+growtopia-vend-finder/overlay/build/
+growtopia-vend-finder/overlay/dist/
+*.spec

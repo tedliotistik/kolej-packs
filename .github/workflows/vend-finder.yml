@@ -26,7 +26,30 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install lupa pytest
-      - run: pytest -q growtopia-vend-finder/tests
+      - run: xvfb-run -a pytest -q growtopia-vend-finder/tests
+
+  build-overlay:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller pytest
+      - run: pytest -q growtopia-vend-finder/tests/test_overlay.py
+      - name: Build VendOverlay.exe
+        working-directory: growtopia-vend-finder/overlay
+        run: pyinstaller --noconfirm --onefile --windowed --name VendOverlay vend_overlay.py
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force VendOverlay | Out-Null
+          Copy-Item growtopia-vend-finder\overlay\dist\VendOverlay.exe VendOverlay
+          Copy-Item growtopia-vend-finder\README.md VendOverlay\OKU-BENI.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VendOverlay-windows
+          path: VendOverlay
 
   build-windows:
     runs-on: windows-2022

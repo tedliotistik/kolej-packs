@@ -1,9 +1,69 @@
-# Growtopia Vend Finder (oyun içi /vend)
+# Growtopia Vend Finder
 
-Discord'a girmeden, **oyunun içinden** eşya fiyatı aramak için bir proxy eklentisi.
+Discord'a girmeden eşya fiyatı aramak için iki seçenek var:
 
-Discord'daki Vend Finder botunun veritabanını kullanmaz. Onun yerine kendi verini toplar:
-proxy açıkken **girdiğin her dünyadaki** vending machine / DigiVend'leri okuyup bilgisayarına
+| | **A) Overlay penceresi** (önerilen) | **B) Proxy + oyun içi `/vend`** |
+|---|---|---|
+| Ban riski | **Yok**: oyuna, oyun dosyalarına ve ağ trafiğine dokunmaz | Var: proxy Growtopia kurallarına aykırı |
+| Nasıl açılır | Oyun açıkken **F8** → üstte pencere açılır | Sohbete `/vend <eşya>` yazılır |
+| Veri | Kendin eklersin (`+ Ekle`), veya B'nin topladığı dosyayı okur | Girdiğin dünyalardaki vend'leri otomatik kaydeder |
+
+İkisi aynı veri dosyasını (`data/vend_finder.tsv`) kullanır; aynı klasöre koyarsan proxy'nin
+topladığı fiyatlar overlay'de de görünür.
+
+---
+
+# A) Overlay penceresi (ban riski yok)
+
+`overlay/vend_overlay.py` (derlenmiş hali `VendOverlay.exe`): her zaman üstte duran küçük
+bir arama penceresi.
+
+- **F8** (ayarlanabilir) ile açılır/kapanır. **Esc** gizler, **Ctrl+Q** kapatır.
+- En üstteki kutuya **eşya adını yaz**; sonuçlar yazdıkça güncellenir. Tam isim eşleşmesi
+  varsa sadece o eşya, yoksa adında aradığın kelime geçen tüm eşyalar listelenir.
+- Sonuç tablosu: **Fiyat · Eşya · Dünya · Konum · Güncellenme tarihi** ("09.11.2026 00:57 (2 sa once)").
+  7 günden eski kayıtlar gri görünür.
+- **Filtreler:**
+  - Sıralama: *Ucuzdan pahalıya* (varsayılan), *Pahalıdan ucuza*, *En yeni önce*, *En eski önce*
+    (Fiyat / Güncellenme başlığına tıklayınca da değişir)
+  - Güncellenme: *Tüm zamanlar, Son 1 saat, Son 24 saat, Son 3 gün, Son 7 gün, Son 30 gün*
+  - Dünya adı ve *Max WL/adet* fiyat sınırı
+- **+ Ekle** (Ctrl+N): eşya, dünya, fiyat (WL / DL / BGL adet başı veya "X adet / WL") ve
+  istersen koordinat girersin. Aynı dünyadaki aynı eşya (veya aynı koordinat) güncellenir.
+- Satıra **çift tık**: dünya adını panoya kopyalar (oyunda dünya adını yapıştırırsın).
+  **Sağ tık**: düzenle, "fiyat hâlâ aynı" (tarihi yeniler), sil, dünyanın tüm ilanlarını sil.
+- Veri dosyası değişirse (ör. proxy yeni dünya kaydettiğinde) pencere kendini yeniler.
+
+**Kurulum:** GitHub Actions'taki **Vend Finder** iş akışından `VendOverlay-windows`
+dosyasını indir, `VendOverlay.exe`'yi bir klasöre koyup çalıştır. Python yüklüyse
+`python overlay/vend_overlay.py` de olur (ek paket gerekmez).
+
+İlk açılışta yanında `config.json` oluşur:
+
+```json
+{
+  "hotkey": "F8",
+  "data_file": "data/vend_finder.tsv",
+  "opacity": 0.95,
+  "always_on_top": true,
+  "start_hidden": false
+}
+```
+
+`hotkey` için `F1`–`F12`, `CTRL+SHIFT+V` gibi kombinasyonlar olur. Kısayol Windows'un
+`RegisterHotKey` özelliğiyle alınır (klavye dinleme / hook yok). Growtopia tam ekran
+modundaysa pencere arkada kalabilir; oyunu **pencereli** veya **kenarlıksız** modda oynaman
+önerilir.
+
+> Not: Ban riski olmadan **otomatik** veri toplamak mümkün değil. Otomatik toplama ya
+> proxy (B seçeneği) ya da oyun belleğini okumayı gerektirir, ikisi de kurallara aykırı.
+> Overlay tek başına kullanıldığında fiyatları sen eklersin.
+
+---
+
+# B) Proxy + oyun içi /vend (ban riski var)
+
+Proxy açıkken **girdiğin her dünyadaki** vending machine / DigiVend'leri okuyup bilgisayarına
 kaydeder. Sonra oyunda `/vend <eşya>` yazdığında sadece senin gezdiğin dünyalardaki fiyatları
 en ucuzdan pahalıya gösterir.
 
@@ -15,7 +75,7 @@ en ucuzdan pahalıya gösterir.
 Dunyaya gitmek icin: /vgo <numara>
 ```
 
-## Nasıl çalışır
+## Nasıl çalışır (proxy)
 
 [GTProxy](https://github.com/ZTzTopia/GTProxy) (açık kaynak Growtopia proxy'si) oyun ile
 Growtopia sunucusu arasına girer. Bu klasördeki yama GTProxy'nin Lua script motoruna
@@ -43,7 +103,7 @@ Stok miktarı dünya verisinde gelmediği için gösterilmez.
 | `/venddel <dünya>` | Bir dünyayı kayıttan siler. |
 | `/vendhelp` | Komut listesi. |
 
-## Kurulum (Windows)
+## Kurulum (proxy, Windows)
 
 1. Bu repodaki GitHub Actions'ta **Vend Finder** iş akışının son başarılı çalışmasından
    `VendFinder-windows` dosyasını indirip bir klasöre çıkar.
@@ -104,8 +164,8 @@ GTProxy'ye eklenenler:
 
 ```bash
 pip install lupa pytest
-pytest growtopia-vend-finder/tests
+pytest growtopia-vend-finder/tests          # Linux'ta GUI testi için: xvfb-run -a pytest ...
 ```
 
-Testler GTProxy API'sini taklit ederek scriptin tarama, kaydetme/yükleme, arama, sıralama ve
-komutlarını doğrular.
+Testler overlay'in veri/arama/filtre mantığını ve penceresini, proxy scriptinin de tarama,
+kaydetme/yükleme, arama, sıralama ve komutlarını (GTProxy API'si taklit edilerek) doğrular.
