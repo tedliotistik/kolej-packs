@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install lupa pytest
+      - run: pip install lupa pytest websocket-client
       - run: xvfb-run -a pytest -q growtopia-vend-finder/tests
 
   build-overlay:
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pyinstaller pytest
+      - run: pip install pyinstaller pytest websocket-client
       - run: pytest -q growtopia-vend-finder/tests/test_overlay.py
       - name: Build VendOverlay.exe
         working-directory: growtopia-vend-finder/overlay

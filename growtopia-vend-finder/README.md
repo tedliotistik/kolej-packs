@@ -59,6 +59,43 @@ modundaysa pencere arkada kalabilir; oyunu **pencereli** veya **kenarlıksız** 
 > proxy (B seçeneği) ya da oyun belleğini okumayı gerektirir, ikisi de kurallara aykırı.
 > Overlay tek başına kullanıldığında fiyatları sen eklersin.
 
+## Overlay + Discord Vend Finder botu (selfbot — Discord ban riski var)
+
+Overlay, aramayı Discord'daki **Vend Finder** botuna da sorabilir. Arama kutusuna eşya adını
+yazıp **Enter**'a (veya "Discord'da ara" düğmesine) basınca program **senin Discord
+hesabınla** botun arama komutunu bir kez gönderir, cevabındaki ilanları (fiyat, dünya, konum,
+tarih) okur ve listeye ekler. Bot birden fazla sayfa gönderirse en fazla `max_pages` sayfa
+okunur.
+
+- Her arama tek bir komut demek (elle yazmakla aynı). 6 sn bekleme süresi ve 2 dk önbellek
+  var; botun veritabanının tamamını indirmez.
+- **Uyarı:** Kullanıcı hesabını otomatikleştirmek (selfbot) Discord kurallarına aykırıdır;
+  hesabın banlanabilir. Mümkünse yan hesap kullan. Program kendini resmi Discord uygulaması
+  gibi göstermez; Discord bunu reddederse hata mesajı gösterir.
+- **Token = hesabının şifresi gibidir.** Sadece kendi bilgisayarındaki `config.json`'a yaz,
+  kimseyle (bana da) paylaşma, ekran görüntüsüne girmesin.
+
+Ayar (`config.json`, VendOverlay.exe'nin yanında):
+
+```json
+"discord": {
+  "enabled": true,
+  "token": "BURAYA_TOKEN",
+  "channel_link": "https://discord.com/channels/SUNUCU_ID/KANAL_ID",
+  "bot_name": "Vend Finder",
+  "command": "",
+  "query_option": "",
+  "max_pages": 3
+}
+```
+
+- `channel_link`: botu kullandığın kanala sağ tık → **Linki Kopyala**.
+- `command` / `query_option` boş kalırsa program botun komutlarından arama komutunu kendisi
+  seçer. Yanlış komutu seçerse `data/discord_commands.json` dosyasındaki komut listesine
+  bakıp doğru adı yaz.
+- Her aramadan sonra botun ham cevabı `data/discord_last_reply.json` dosyasına yazılır.
+  Fiyatlar yanlış okunursa bu dosya parser'ı düzeltmek için gerekir (içinde token yoktur).
+
 ---
 
 # B) Proxy + oyun içi /vend (ban riski var)

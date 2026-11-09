@@ -156,3 +156,60 @@ def test_gui_smoke(tmp_path):
         root.update()
     finally:
         app.close()
+
+
+@pytest.mark.skipif(not os.environ.get("DISPLAY"), reason="needs a display (xvfb-run)")
+def test_gui_discord_search(tmp_path, monkeypatch):
+    import time
+    import tkinter as tk
+    import discord_source as ds
+    import vend_overlay as ov
+
+    now = int(time.time())
+
+    class StubClient:
+        def __init__(self, **kw):
+            assert kw["channel_link"] == "https://discord.com/channels/1/2"
+
+        def search(self, query):
+            return [ds.Listing("Bodvar", "MARTGENZ", 4059, now - 60, 69, 52, True),
+                    ds.Listing("Bodvar", "SETS", 10000, now - 120, 31, 36, False)]
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ds, "DiscordVendClient", StubClient)
+    data = tmp_path / "vend_finder.tsv"
+    cfg = dict(ov.DEFAULT_CONFIG, data_file=str(data),
+               discord=dict(ov.DEFAULT_CONFIG["discord"], enabled=True, token="T",
+                            channel_link="https://discord.com/channels/1/2"))
+    root = tk.Tk()
+    app = ov.OverlayApp(root, cfg)
+    try:
+        assert app.discord is not None
+        app.search_var.set("bodvar")
+        assert app.search.bind("<Return>")  # Enter is wired to the Discord search
+        app.search_discord()
+        assert "araniyor" in app.discord_note
+        deadline = time.time() + 5
+        while time.time() < deadline and "eklendi" not in app.discord_note:
+            app._poll()
+            root.update()
+            time.sleep(0.05)
+        assert "2 ilan eklendi" in app.discord_note
+        rows = [app.tree.item(i, "values") for i in app.tree.get_children()]
+        assert [r[2] for r in rows] == ["MARTGENZ", "SETS"]       # cheapest first
+        assert rows[0][0] == "40 DL 59 WL / adet" and rows[0][3] == "69, 52"
+        assert {o.world for o in core.VendStore(str(data)).offers} == {"MARTGENZ", "SETS"}
+    finally:
+        app.close()
+
+
+def test_config_merges_discord_defaults(tmp_path, monkeypatch):
+    import json
+    import vend_overlay as ov
+    (tmp_path / "config.json").write_text(json.dumps({"hotkey": "F9", "discord": {"enabled": True}}))
+    monkeypatch.setattr(ov, "base_dir", lambda: str(tmp_path))
+    cfg = ov.load_config()
+    assert cfg["hotkey"] == "F9"
+    assert cfg["discord"]["enabled"] is True and cfg["discord"]["bot_name"] == "Vend Finder"

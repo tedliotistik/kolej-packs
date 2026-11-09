@@ -197,6 +197,21 @@ class VendStore:
         self.offers = [o for o in self.offers if o.key != offer.key] + [offer]
         self.save()
 
+    def upsert_many(self, offers: Iterable[Offer]) -> int:
+        """Add several offers at once (one save). Returns how many were given."""
+        new = list(offers)
+        if not new:
+            return 0
+        self.reload_if_changed()
+        keys = {o.key for o in new}
+        latest = {}
+        for o in new:  # if a machine appears twice, keep the newest data
+            if o.key not in latest or o.updated_at >= latest[o.key].updated_at:
+                latest[o.key] = o
+        self.offers = [o for o in self.offers if o.key not in keys] + list(latest.values())
+        self.save()
+        return len(new)
+
     def remove(self, offers: Iterable[Offer]) -> None:
         self.reload_if_changed()
         gone = set(offers)

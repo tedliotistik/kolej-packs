@@ -19,6 +19,11 @@ from tkinter import messagebox, ttk
 
 import vend_core as core
 
+try:
+    import discord_source
+except ImportError:  # websocket-client missing; Discord search is optional
+    discord_source = None
+
 APP_TITLE = "Vend Finder"
 DEFAULT_CONFIG = {
     "hotkey": "F8",
@@ -26,6 +31,17 @@ DEFAULT_CONFIG = {
     "opacity": 0.95,
     "always_on_top": True,
     "start_hidden": False,
+    # Discord "Vend Finder" bot search with YOUR account (selfbot: against
+    # Discord's rules, the account can be banned). Never share the token.
+    "discord": {
+        "enabled": False,
+        "token": "",
+        "channel_link": "",
+        "bot_name": "Vend Finder",
+        "command": "",
+        "query_option": "",
+        "max_pages": 3,
+    },
 }
 
 
@@ -40,7 +56,10 @@ def load_config() -> dict:
     cfg = dict(DEFAULT_CONFIG)
     try:
         with open(path, encoding="utf-8") as fh:
-            cfg.update(json.load(fh))
+            user_cfg = json.load(fh)
+        discord_cfg = dict(DEFAULT_CONFIG["discord"], **(user_cfg.get("discord") or {}))
+        cfg.update(user_cfg)
+        cfg["discord"] = discord_cfg
     except FileNotFoundError:
         try:
             with open(path, "w", encoding="utf-8") as fh:
@@ -226,6 +245,8 @@ class OverlayApp:
         self.events: "queue.Queue[str]" = queue.Queue()
         self.rows: dict[str, core.Offer] = {}
         self.hotkey = None
+        self.discord = None
+        self.discord_note = ""
 
         root.title(APP_TITLE)
         root.geometry("780x460")
@@ -237,6 +258,7 @@ class OverlayApp:
             pass
         root.protocol("WM_DELETE_WINDOW", self.on_close_button)
 
+        self._setup_discord()
         self._build()
         self._start_hotkey()
         self.refresh()
@@ -261,6 +283,9 @@ class OverlayApp:
         self.search = ttk.Entry(top, textvariable=self.search_var, style="Search.TEntry",
                                 font=("Segoe UI", 13))
         self.search.pack(side="left", fill="x", expand=True)
+        if self.discord:
+            self.discord_button = ttk.Button(top, text="Discord'da ara (Enter)", command=self.search_discord)
+            self.discord_button.pack(side="left", padx=(6, 0))
         ttk.Button(top, text="+ Ekle", command=self.add_offer).pack(side="left", padx=(6, 0))
         self.search_var.trace_add("write", lambda *a: self.refresh())
 
@@ -314,7 +339,7 @@ class OverlayApp:
         self.root.bind("<Escape>", lambda e: self.hide())
         self.root.bind("<Control-n>", lambda e: self.add_offer())
         self.search.bind("<Down>", lambda e: self._focus_table())
-        self.search.bind("<Return>", lambda e: self._focus_table())
+        self.search.bind("<Return>", lambda e: self.search_discord() if self.discord else self._focus_table())
 
     def _start_hotkey(self):
         if sys.platform != "win32":
@@ -326,11 +351,52 @@ class OverlayApp:
             messagebox.showwarning(APP_TITLE, self.hotkey.error + "\nconfig.json'dan baska bir tus secin.")
 
     # -- behaviour ----------------------------------------------------------
+    def _setup_discord(self):
+        cfg = self.config.get("discord") or {}
+        if not cfg.get("enabled"):
+            return
+        if discord_source is None:
+            self.discord_note = "Discord: websocket-client paketi eksik"
+            return
+        try:
+            client = discord_source.DiscordVendClient(
+                token=cfg.get("token", ""), channel_link=cfg.get("channel_link", ""),
+                bot_name=cfg.get("bot_name", "Vend Finder"), command_name=cfg.get("command", ""),
+                option_name=cfg.get("query_option", ""), max_pages=cfg.get("max_pages", 3),
+                dump_dir=os.path.dirname(self.config["data_file"]),
+            )
+        except discord_source.DiscordError as exc:
+            self.discord_note = f"Discord kapali: {exc}"
+            return
+        self.discord = discord_source.DiscordSearcher(
+            client, lambda q, res, err: self.events.put(("discord", q, res, err)))
+
+    def search_discord(self):
+        if not self.discord:
+            return
+        query = self.search_var.get().strip()
+        problem = self.discord.submit(query)
+        self.discord_note = problem or f"Discord: '{query}' araniyor..."
+        self.refresh()
+
+    def _on_discord_result(self, query, listings, error):
+        if error:
+            self.discord_note = f"Discord hatasi: {error}"
+        else:
+            offers = [core.Offer(core.normalize_world(l.world), core.clean_text(l.item_name) or query,
+                                 l.price, l.updated_at, l.x, l.y) for l in listings]
+            self.store.upsert_many(offers)
+            self.discord_note = f"Discord: '{query}' icin {len(offers)} ilan eklendi."
+        self.refresh()
+
     def _poll(self):
         try:
             while True:
-                if self.events.get_nowait() == "toggle":
+                event = self.events.get_nowait()
+                if event == "toggle":
                     self.toggle()
+                elif isinstance(event, tuple) and event[0] == "discord":
+                    self._on_discord_result(*event[1:])
         except queue.Empty:
             pass
         self._poll_count = getattr(self, "_poll_count", 0) + 1
@@ -424,8 +490,11 @@ class OverlayApp:
 
         keys = (f"{self.config.get('hotkey', 'F8')}: ac/kapat, Esc: gizle, Ctrl+Q: cikis"
                 if self.hotkey_ok() else "Esc: kucult")
-        self.status.set(f"{len(results)} ilan  |  toplam {len(self.store.offers)} kayit  |  "
-                        f"{keys}  |  cift tik: dunya adini kopyala, sag tik: duzenle/sil")
+        status = (f"{len(results)} ilan  |  toplam {len(self.store.offers)} kayit  |  "
+                  f"{keys}  |  cift tik: dunya adini kopyala, sag tik: duzenle/sil")
+        if self.discord_note:
+            status = self.discord_note + "  |  " + status
+        self.status.set(status)
 
     # -- actions ------------------------------------------------------------
     def add_offer(self):
@@ -465,6 +534,8 @@ class OverlayApp:
     def close(self):
         if self.hotkey:
             self.hotkey.stop()
+        if self.discord:
+            self.discord.client.close()
         self.root.destroy()
 
 
