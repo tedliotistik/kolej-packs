@@ -11,6 +11,10 @@ on:
       - ".github/workflows/vend-finder.yml"
   workflow_dispatch:
 
+concurrency:
+  group: vend-finder-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # GTProxy commit the patch was written against. (The next upstream commit,
   # f51c5a3 "style: keep code style consistent", does not compile.)
@@ -54,6 +58,7 @@ jobs:
 
   build-windows:
     runs-on: windows-2022
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +88,16 @@ jobs:
           restore-keys: ${{ runner.os }}-conan-
 
       - name: Configure
-        run: cmake -S gtproxy -B gtproxy\build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        # Conan downloads dependency sources (e.g. www.lua.org) which sometimes
+        # time out on the runners, so retry a few times before giving up.
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            cmake -S gtproxy -B gtproxy/build -DCMAKE_BUILD_TYPE="$BUILD_TYPE" && exit 0
+            echo "Configure attempt $attempt failed, retrying in 30s..."
+            sleep 30
+          done
+          exit 1
 
       - name: Build
         run: cmake --build gtproxy\build --config ${{ env.BUILD_TYPE }} --target Proxy
