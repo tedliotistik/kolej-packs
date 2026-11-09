@@ -1,0 +1,313 @@
+From 55c2545ab1cc665ce088525344a392763e49bfe2 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 00:58:05 +0000
+Subject: [PATCH] Expose vending machines, world name and sandboxed storage to
+ Lua
+
+Also fix /warp capturing the world name by reference in a delayed task.
+---
+ src/command/commands/warp_command.hpp         |   2 +-
+ src/core/core.cpp                             |   2 +
+ src/scripting/bindings/storage_bindings.cpp   | 114 ++++++++++++++++++
+ src/scripting/bindings/storage_bindings.hpp   |  23 ++++
+ src/scripting/bindings/world_bindings.cpp     |  37 +++++-
+ .../bindings/world_data_bindings.cpp          |  12 ++
+ src/world/world.hpp                           |   6 +
+ 7 files changed, 194 insertions(+), 2 deletions(-)
+ create mode 100644 src/scripting/bindings/storage_bindings.cpp
+ create mode 100644 src/scripting/bindings/storage_bindings.hpp
+
+diff --git a/src/command/commands/warp_command.hpp b/src/command/commands/warp_command.hpp
+index 94a6631..620148f 100644
+--- a/src/command/commands/warp_command.hpp
++++ b/src/command/commands/warp_command.hpp
+@@ -46,7 +46,7 @@ public:
+ 
+         const auto client{ &ctx.client };
+         ctx.scheduler->schedule_delayed(
+-            [client, &world_name] {
++            [client, world_name] {
+                 if (!client->is_connected()) {
+                     spdlog::warn("Client disconnected before warp could complete.");
+                     return;
+diff --git a/src/core/core.cpp b/src/core/core.cpp
+index 4dd3d5e..6d8f4f6 100644
+--- a/src/core/core.cpp
++++ b/src/core/core.cpp
+@@ -15,6 +15,7 @@
+ #include "../scripting/bindings/world_bindings.hpp"
+ #include "../scripting/bindings/world_data_bindings.hpp"
+ #include "../scripting/bindings/item_bindings.hpp"
++#include "../scripting/bindings/storage_bindings.hpp"
+ 
+ namespace core {
+ Core::Core()
+@@ -56,6 +57,7 @@ Core::Core()
+     script_engine_->register_binding(std::make_unique<scripting::bindings::WorldBindings>());
+     script_engine_->register_binding(std::make_unique<scripting::bindings::WorldDataBindings>());
+     script_engine_->register_binding(std::make_unique<scripting::bindings::ItemBindings>());
++    script_engine_->register_binding(std::make_unique<scripting::bindings::StorageBindings>());
+ 
+     script_loader_ = std::make_unique<scripting::ScriptLoader>(*script_engine_, "scripts");
+     script_loader_->load_all();
+diff --git a/src/scripting/bindings/storage_bindings.cpp b/src/scripting/bindings/storage_bindings.cpp
+new file mode 100644
+index 0000000..3c11eb5
+--- /dev/null
++++ b/src/scripting/bindings/storage_bindings.cpp
+@@ -0,0 +1,114 @@
++#include "storage_bindings.hpp"
++
++#include <chrono>
++#include <fstream>
++#include <optional>
++#include <sstream>
++#include <system_error>
++
++#include <spdlog/spdlog.h>
++
++namespace scripting::bindings {
++namespace {
++bool is_valid_file_name(const std::string& name)
++{
++    if (name.empty() || name.size() > 128 || name == "." || name == "..") {
++        return false;
++    }
++
++    for (const char c : name) {
++        const bool ok{
++            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
++            c == '_' || c == '-' || c == '.'
++        };
++        if (!ok) {
++            return false;
++        }
++    }
++
++    return true;
++}
++}
++
++StorageBindings::StorageBindings(std::filesystem::path root)
++    : root_{ std::move(root) }
++{
++}
++
++void StorageBindings::bind(sol::state& lua)
++{
++    auto storage_table{ lua.create_table() };
++
++    storage_table.set_function("read", [this](const std::string& file_name) -> std::optional<std::string> {
++        if (!is_valid_file_name(file_name)) {
++            spdlog::error("[storage] Invalid file name: '{}'", file_name);
++            return std::nullopt;
++        }
++
++        std::ifstream file{ root_ / file_name, std::ios::binary };
++        if (!file) {
++            return std::nullopt;
++        }
++
++        std::ostringstream ss;
++        ss << file.rdbuf();
++        return ss.str();
++    });
++
++    storage_table.set_function("write", [this](const std::string& file_name, const std::string& content) -> bool {
++        if (!is_valid_file_name(file_name)) {
++            spdlog::error("[storage] Invalid file name: '{}'", file_name);
++            return false;
++        }
++
++        std::error_code ec;
++        std::filesystem::create_directories(root_, ec);
++
++        // Write to a temporary file first and then swap it in, so a crash
++        // while saving never leaves a half-written database behind.
++        const auto final_path{ root_ / file_name };
++        const auto tmp_path{ root_ / (file_name + ".tmp") };
++        {
++            std::ofstream file{ tmp_path, std::ios::binary | std::ios::trunc };
++            if (!file) {
++                spdlog::error("[storage] Cannot open '{}' for writing", tmp_path.string());
++                return false;
++            }
++
++            file << content;
++            if (!file) {
++                return false;
++            }
++        }
++
++        std::filesystem::rename(tmp_path, final_path, ec);
++        if (ec) {
++            // Some platforms refuse to rename over an existing file.
++            std::filesystem::remove(final_path, ec);
++            std::filesystem::rename(tmp_path, final_path, ec);
++        }
++
++        if (ec) {
++            spdlog::error("[storage] Cannot save '{}': {}", final_path.string(), ec.message());
++            return false;
++        }
++
++        return true;
++    });
++
++    // Seconds since the Unix epoch (the Lua `os` library is not available).
++    storage_table.set_function("now", []() -> std::int64_t {
++        return std::chrono::duration_cast<std::chrono::seconds>(
++            std::chrono::system_clock::now().time_since_epoch()
++        ).count();
++    });
++
++    storage_table.set_function("path", [this]() -> std::string {
++        std::error_code ec;
++        const auto abs{ std::filesystem::absolute(root_, ec) };
++        return ec ? root_.string() : abs.string();
++    });
++
++    lua["storage"] = storage_table;
++}
++}
+diff --git a/src/scripting/bindings/storage_bindings.hpp b/src/scripting/bindings/storage_bindings.hpp
+new file mode 100644
+index 0000000..f845638
+--- /dev/null
++++ b/src/scripting/bindings/storage_bindings.hpp
+@@ -0,0 +1,23 @@
++#pragma once
++#include <filesystem>
++
++#include <sol/sol.hpp>
++
++#include "../binding_module.hpp"
++
++namespace scripting::bindings {
++// Minimal, sandboxed persistence for scripts. The Lua engine does not open the
++// `io`/`os` libraries, so scripts use this to keep data between proxy runs.
++// Every file lives directly inside `root` and names are restricted to
++// [A-Za-z0-9_.-], so a script cannot touch anything outside that folder.
++class StorageBindings final : public IBindingModule {
++public:
++    explicit StorageBindings(std::filesystem::path root = "data");
++
++    [[nodiscard]] std::string_view name() const override { return "storage"; }
++    void bind(sol::state& lua) override;
++
++private:
++    std::filesystem::path root_;
++};
++}
+diff --git a/src/scripting/bindings/world_bindings.cpp b/src/scripting/bindings/world_bindings.cpp
+index d30b5e1..d7dc677 100644
+--- a/src/scripting/bindings/world_bindings.cpp
++++ b/src/scripting/bindings/world_bindings.cpp
+@@ -28,7 +28,42 @@ void WorldBindings::bind(sol::state& lua)
+         "get_object_map", [](world::World& world) -> WorldObjectMap& {
+             return world.get_object_map();
+         },
+-        "get_version", &world::World::get_version
++        "get_version", &world::World::get_version,
++        "get_name", [](const world::World& world) -> std::string {
++            return world.get_name();
++        },
++        // Returns every vending machine / DigiVend in the current world as
++        // { { x, y, item_id, price }, ... }. `price` is signed: > 0 means
++        // "price World Locks per item", < 0 means "-price items per World Lock".
++        "get_vendings", [](world::World& world, const sol::this_state& this_state) {
++            sol::state_view state{ this_state };
++            sol::table result{ state.create_table() };
++
++            auto& tile_map{ world.get_tile_map() };
++            const auto width{ tile_map.get_size().x };
++            const auto& tiles{ tile_map.get_tiles() };
++            if (width <= 0) {
++                return result;
++            }
++
++            int out_index{ 1 };
++            for (std::size_t i{ 0 }; i < tiles.size(); ++i) {
++                const auto* vending{ tiles[i].extra.get_as<world::tile_extra::Vending>() };
++                if (!vending) {
++                    continue;
++                }
++
++                sol::table entry{ state.create_table() };
++                entry["x"] = static_cast<int>(i % static_cast<std::size_t>(width));
++                entry["y"] = static_cast<int>(i / static_cast<std::size_t>(width));
++                entry["item_id"] = vending->item_id;
++                entry["price"] = static_cast<std::int32_t>(vending->price);
++                entry["tile_id"] = tiles[i].foreground;
++                result[out_index++] = entry;
++            }
++
++            return result;
++        }
+     );
+ 
+     lua["world"] = std::ref(world::World::instance());
+diff --git a/src/scripting/bindings/world_data_bindings.cpp b/src/scripting/bindings/world_data_bindings.cpp
+index c4c5f58..7422ff6 100644
+--- a/src/scripting/bindings/world_data_bindings.cpp
++++ b/src/scripting/bindings/world_data_bindings.cpp
+@@ -14,6 +14,7 @@ void WorldDataBindings::bind(sol::state& lua)
+ {
+     bind_tile(lua);
+     bind_tile_extra(lua);
++    bind_tile_extra_variants(lua);
+     bind_object(lua);
+     bind_tile_map(lua);
+     bind_object_map(lua);
+@@ -52,6 +53,9 @@ void WorldDataBindings::bind_tile_extra(sol::state& lua)
+         },
+         "get_as_sign", [](world::tile_extra::TileExtra& te) -> world::tile_extra::Sign* {
+             return te.get_as<world::tile_extra::Sign>();
++        },
++        "get_as_vending", [](world::tile_extra::TileExtra& te) -> world::tile_extra::Vending* {
++            return te.get_as<world::tile_extra::Vending>();
+         }
+     );
+ }
+@@ -78,6 +82,14 @@ void WorldDataBindings::bind_tile_extra_variants(sol::state& lua)
+         }
+     );
+     
++    lua.new_usertype<world::tile_extra::Vending>("TileExtraVending",
++        sol::no_constructor,
++        "item_id", &world::tile_extra::Vending::item_id,
++        "price", sol::property([](const world::tile_extra::Vending& v) -> std::int32_t {
++            return static_cast<std::int32_t>(v.price);
++        })
++    );
++
+     lua.new_usertype<world::tile_extra::Seed>("TileExtraSeed",
+         sol::no_constructor,
+         "growth_time", &world::tile_extra::Seed::growth_time,
+diff --git a/src/world/world.hpp b/src/world/world.hpp
+index ce8fc58..21d314a 100644
+--- a/src/world/world.hpp
++++ b/src/world/world.hpp
+@@ -40,6 +40,7 @@ public:
+     {
+         players_.clear();
+         local_net_id_ = -1;
++        name_.clear();
+         tile_map_ = WorldTileMap{};
+         object_map_ = WorldObjectMap{};
+     }
+@@ -87,6 +88,11 @@ public:
+         return version_;
+     }
+ 
++    [[nodiscard]] const std::string& get_name() const
++    {
++        return name_;
++    }
++
+     void serialize(const std::byte* extended_data, const std::size_t extended_data_size)
+     {
+         if (!extended_data) {
+-- 
+2.43.0
+
