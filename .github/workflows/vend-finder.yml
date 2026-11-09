@@ -96,6 +96,7 @@ jobs:
           Copy-Item "gtproxy\build\conan\build\*.dll" $out -ErrorAction SilentlyContinue
           Copy-Item "gtproxy\resources\*" "$out\resources"
           Copy-Item "growtopia-vend-finder\scripts\vend_finder.lua" "$out\scripts"
+          Copy-Item "growtopia-vend-finder\scripts\auto_tile.lua" "$out\scripts"
           Copy-Item "growtopia-vend-finder\windows\*" $out
           Copy-Item "growtopia-vend-finder\README.md" "$out\OKU-BENI.md"
           Copy-Item "gtproxy\LICENSE" "$out\GTProxy-LICENSE.txt"

@@ -131,6 +131,29 @@ açılabilir). Bulutta tutmak istersen bu klasörü OneDrive/Google Drive klasö
   O durumda `.github/workflows/vend-finder.yml` içindeki `GTPROXY_COMMIT` değerini yeni bir
   GTProxy sürümüne çekip yamanın hâlâ uygulandığını kontrol et.
 
+## Ek script: Auto Tile (`/ac`) — ban riski YÜKSEK
+
+`scripts/auto_tile.lua`: kendi yaptığın vurma / blok koyma tıklamalarını kaydedip
+tekrar eder. GTProxy fareyi göremez; onun yerine oyunun tıklayınca sunucuya gönderdiği
+paketi **bayt bayt aynen** kaydeder ve zamanlayıcıyla tekrar yollar. Bu yüzden oyun
+alt-tab'dayken de çalışır.
+
+| Komut | Açıklama |
+|---|---|
+| `/ac kaydet` | Kaydı başlatır. Sonra istediğin karelere vur / blok koy (en fazla 20). |
+| `/ac bitti` | Kaydı bitirir. |
+| `/ac basla [ms] [tur]` | Kayıtlı tıklamaları sırayla `ms` arayla tekrar eder (varsayılan 250, en az 100). `tur` verilirse o kadar tur sonra durur. |
+| `/ac dur` | Durdurur. |
+| `/ac liste` / `/ac temizle` | Kayıtları gösterir / siler. |
+
+- Paketin içinde kayıt anındaki karakter konumun var: **çalışırken yürüme**.
+- Dünya değiştirince kayıtlar silinir ve tekrar durur; bağlantı koparsa da durur.
+- Blok koyma tekrarı, envanterde blok bittiğinde sunucu tarafından reddedilir.
+- **Uyarı:** Bu otomasyon (bot) sayılır. Growtopia bunu proxy kullanmaktan daha sert
+  cezalandırır; sabit aralıklı, insansız tıklamalar tespit edilmesi kolay bir davranıştır.
+  Ana hesabında kullanma. Gerçek oyunda hiç test edilmedi.
+- İstemiyorsan `scripts/auto_tile.lua` dosyasını silmen yeterli.
+
 ## Kendin derle
 
 ```bash
