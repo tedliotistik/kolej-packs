@@ -162,6 +162,7 @@ cd GTProxy
 git checkout 0105cd5e7f9312cf9289faf18596d357068da088
 git submodule update --init --recursive
 git apply ../growtopia-vend-finder/patches/0001-vend-finder-lua-bindings.patch
+git apply ../growtopia-vend-finder/patches/0002-dns-over-https-ca-bundle.patch
 pip install "conan>2.0"
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
@@ -182,6 +183,11 @@ GTProxy'ye eklenenler:
   küçük bir kayıt API'si (GTProxy Lua'da `io`/`os` kütüphanelerini açmıyor).
 - `/warp` komutundaki bir hata düzeltmesi (dünya adı gecikmeli görevde referansla
   tutuluyordu, ışınlanma bozuk isimle gidebiliyordu).
+- `0002-dns-over-https-ca-bundle.patch`: GTProxy gerçek Growtopia sunucusunun adresini
+  DNS-over-HTTPS ile bulur; bu istek bazı Windows bilgisayarlarda sertifika doğrulamasında
+  hata veriyordu ("DNS request failed: SSLServerVerification"). Artık pakete eklenen
+  `resources/cacert.pem` (Mozilla CA listesi) ile doğrulanıyor ve Cloudflare çalışmazsa
+  Google DNS deneniyor.
 
 ## Testler
 

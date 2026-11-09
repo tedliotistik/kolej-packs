@@ -110,6 +110,8 @@ jobs:
           Copy-Item "gtproxy\build\src\${{ env.BUILD_TYPE }}\*.exe" $out
           Copy-Item "gtproxy\build\conan\build\*.dll" $out -ErrorAction SilentlyContinue
           Copy-Item "gtproxy\resources\*" "$out\resources"
+          # Mozilla CA list used by patches/0002 for DNS-over-HTTPS lookups.
+          Invoke-WebRequest "https://curl.se/ca/cacert.pem" -OutFile "$out\resources\cacert.pem" -MaximumRetryCount 3 -RetryIntervalSec 10
           Copy-Item "growtopia-vend-finder\scripts\vend_finder.lua" "$out\scripts"
           Copy-Item "growtopia-vend-finder\scripts\auto_tile.lua" "$out\scripts"
           Copy-Item "growtopia-vend-finder\windows\*" $out
